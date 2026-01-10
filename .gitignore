@@ -1,0 +1,40 @@
+# Virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Data files (too large for git)
+data/*.csv
+data/*.json
+data/*.parquet
+
+# Results (generated, can be large)
+results/*.png
+results/*.pdf
+results/*.csv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+data/*.xlsx
+data/*.ipynb
+data/*.md
+data/*.csv
+notes
