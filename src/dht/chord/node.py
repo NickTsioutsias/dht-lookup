@@ -76,46 +76,69 @@ class ChordNode(BaseNode):
         """Whether this node is currently part of the network."""
         return self._is_active
     
-    def join(self, existing_node: Optional["ChordNode"] = None) -> None:
+    def join(self, existing_node: Optional["ChordNode"] = None) -> int:
         """
         Join the Chord network.
         
         If existing_node is None, this node starts a new network.
         Otherwise, it joins through the existing node.
         
+        Hop Count Note:
+            Counts ROUTING hops only (hops needed to locate nodes via
+            find_successor calls). Direct communication with already-known
+            nodes (like notifying successor) is not counted, following
+            Chord's theoretical cost model.
+        
         Args:
             existing_node: A node already in the network, or None to start new.
+        
+        Returns:
+            Number of routing hops used during the join process.
         """
+        total_hops = 0
+        
         if existing_node is None:
             # Starting a new network - we are our own successor and predecessor
             logger.info(f"{self.identifier} starting new Chord network")
             self._predecessor = self
             self.successor = self
             self._init_finger_table_single()
+            # No hops needed for single node network
         else:
             # Joining existing network
             logger.info(f"{self.identifier} joining network via {existing_node.identifier}")
-            self._init_finger_table(existing_node)
-            self._update_others()
+            hops = self._init_finger_table(existing_node)
+            total_hops += hops
+            
+            update_hops = self._update_others()
+            total_hops += update_hops
+            
             self._migrate_keys_from_successor()
         
         self._is_active = True
-        logger.debug(f"{self.identifier} joined with successor={self.successor.identifier}")
+        logger.debug(f"{self.identifier} joined with successor={self.successor.identifier}, hops={total_hops}")
+        return total_hops
     
     def _init_finger_table_single(self) -> None:
         """Initialize finger table when we are the only node."""
         for i in range(self._finger_table.size):
             self._finger_table.set_node(i, self)
     
-    def _init_finger_table(self, existing_node: "ChordNode") -> None:
+    def _init_finger_table(self, existing_node: "ChordNode") -> int:
         """
         Initialize finger table by querying the existing network.
         
         Args:
             existing_node: A node to query for finger information.
+        
+        Returns:
+            Number of hops used during finger table initialization.
         """
+        total_hops = 0
+        
         # Find our successor
-        successor, _ = existing_node.find_successor(self._finger_table.get_start(0))
+        successor, hops = existing_node.find_successor(self._finger_table.get_start(0))
+        total_hops += hops
         self._finger_table.set_node(0, successor)
         
         # Set predecessor from successor's predecessor
@@ -139,24 +162,35 @@ class ChordNode(BaseNode):
                 self._finger_table.set_node(i + 1, current_finger)
             else:
                 # Need to query the network
-                node, _ = existing_node.find_successor(finger_start)
+                node, hops = existing_node.find_successor(finger_start)
+                total_hops += hops
                 self._finger_table.set_node(i + 1, node)
+        
+        return total_hops
     
-    def _update_others(self) -> None:
+    def _update_others(self) -> int:
         """
         Update finger tables of other nodes that should point to us.
         
         Called when joining the network. Finds nodes whose finger tables
         should include this node and updates them.
+        
+        Returns:
+            Number of hops used during the update process.
         """
+        total_hops = 0
+        
         for i in range(self._finger_table.size):
             # Find the node that might need to update finger i to point to us
             # This is the predecessor of (self.node_id - 2^i)
             target = (self._node_id - (1 << i)) % config.HASH_SPACE_SIZE
-            predecessor = self._find_predecessor(target)
+            predecessor, hops = self._find_predecessor_with_hops(target)
+            total_hops += hops
             
             if predecessor and predecessor.node_id != self._node_id:
                 predecessor._update_finger_table(self, i)
+        
+        return total_hops
     
     def _update_finger_table(self, node: "ChordNode", i: int) -> None:
         """
@@ -214,38 +248,59 @@ class ChordNode(BaseNode):
             self._data[key] = value
             logger.debug(f"Migrated key '{key}' from {self.successor.identifier} to {self.identifier}")
     
-    def leave(self) -> None:
+    def leave(self) -> int:
         """
         Gracefully leave the Chord network.
         
         Transfers all keys to successor and updates predecessor/successor links.
+        Uses lazy approach: only notifies immediate neighbors, finger tables
+        are repaired lazily by other nodes during stabilization.
+        
+        Hop Count Note:
+            Returns 0 hops because Chord's cost model counts ROUTING hops
+            (hops needed to find/locate a node), not COMMUNICATION hops
+            (direct messages to already-known nodes). Since we maintain
+            direct pointers to successor and predecessor, notifying them
+            does not require routing through the network.
+        
+        Returns:
+            Number of routing hops used during the leave process (always 0).
         """
         if not self._is_active:
             logger.warning(f"{self.identifier} is not active, cannot leave")
-            return
+            return 0
         
         logger.info(f"{self.identifier} leaving network")
         
-        # Transfer all our keys to successor
+        # Check if we are the only node
+        if self.successor == self or self._predecessor == self:
+            logger.info(f"{self.identifier} was the only node, network is now empty")
+            self._data.clear()
+            self._is_active = False
+            return 0
+        
+        # Step 1: Transfer keys to successor (direct communication, 0 routing hops)
         if self.successor and self.successor != self:
             for key, value in self._data.items():
                 self.successor.store_local(key, value)
                 logger.debug(f"Transferred key '{key}' to {self.successor.identifier}")
-        
-        # Update links
-        if self.successor and self.successor != self:
+            # Notify successor of new predecessor (direct pointer update)
             self.successor.predecessor = self._predecessor
         
+        # Step 2: Notify predecessor of new successor (direct pointer update)
         if self._predecessor and self._predecessor != self:
             self._predecessor.successor = self.successor
-            # Update predecessor's finger table
-            self._predecessor._remove_from_fingers(self)
+        
+        # Finger tables of other nodes are NOT updated here (lazy approach)
+        # They will be repaired during stabilization or when lookups fail
         
         # Clear our state
         self._data.clear()
         self._is_active = False
         logger.info(f"{self.identifier} has left the network")
-    
+        
+        # Return 0: no routing hops needed (only direct communication with known nodes)
+        return 0
     def _remove_from_fingers(self, leaving_node: "ChordNode") -> None:
         """
         Update finger table to remove references to a leaving node.

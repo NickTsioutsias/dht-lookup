@@ -62,22 +62,28 @@ class BaseNode(ABC):
         pass
     
     @abstractmethod
-    def join(self, existing_node: Optional["BaseNode"] = None) -> None:
+    def join(self, existing_node: Optional["BaseNode"] = None) -> int:
         """
         Join the DHT network.
         
         Args:
             existing_node: An existing node in the network to join through.
                           If None, this node starts a new network.
+        
+        Returns:
+            Number of hops used during the join process.
         """
         pass
     
     @abstractmethod
-    def leave(self) -> None:
+    def leave(self) -> int:
         """
         Gracefully leave the DHT network.
         
         Transfers responsibility for keys to other nodes.
+        
+        Returns:
+            Number of hops used during the leave process.
         """
         pass
     

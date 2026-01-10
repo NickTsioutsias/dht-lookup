@@ -63,7 +63,7 @@ class ChordNetwork:
         node = ChordNode(identifier)
         return node
     
-    def add_node(self, node: ChordNode) -> None:
+    def add_node(self, node: ChordNode) -> int:
         """
         Add an existing node to the network.
         
@@ -72,25 +72,29 @@ class ChordNetwork:
         
         Args:
             node: The node to add.
+        
+        Returns:
+            Number of hops used during the join process.
         """
         if node.identifier in self._nodes_by_identifier:
             raise ValueError(f"Node '{node.identifier}' is already in the network")
         
         if len(self._nodes) == 0:
             # First node - start new network
-            node.join(None)
+            hops = node.join(None)
         else:
             # Join through a random existing node
             existing_node = random.choice(self._nodes)
-            node.join(existing_node)
+            hops = node.join(existing_node)
         
         self._nodes.append(node)
         self._nodes_by_id[node.node_id] = node
         self._nodes_by_identifier[node.identifier] = node
         
-        logger.info(f"Added {node.identifier} to network (total: {len(self._nodes)} nodes)")
+        logger.info(f"Added {node.identifier} to network (total: {len(self._nodes)} nodes, join_hops: {hops})")
+        return hops
     
-    def create_and_add_node(self, identifier: str) -> ChordNode:
+    def create_and_add_node(self, identifier: str) -> Tuple[ChordNode, int]:
         """
         Create a new node and add it to the network.
         
@@ -100,13 +104,13 @@ class ChordNetwork:
             identifier: Human-readable name for the node.
         
         Returns:
-            The created and added ChordNode.
+            Tuple of (created_node, join_hops).
         """
         node = self.create_node(identifier)
-        self.add_node(node)
-        return node
+        hops = self.add_node(node)
+        return node, hops
     
-    def remove_node(self, identifier: str) -> bool:
+    def remove_node(self, identifier: str) -> Tuple[bool, int]:
         """
         Remove a node from the network.
         
@@ -116,21 +120,21 @@ class ChordNetwork:
             identifier: Identifier of the node to remove.
         
         Returns:
-            True if the node was removed, False if not found.
+            Tuple of (success, leave_hops).
         """
         if identifier not in self._nodes_by_identifier:
             logger.warning(f"Node '{identifier}' not found in network")
-            return False
+            return False, 0
         
         node = self._nodes_by_identifier[identifier]
-        node.leave()
+        hops = node.leave()
         
         self._nodes.remove(node)
         del self._nodes_by_id[node.node_id]
         del self._nodes_by_identifier[identifier]
         
-        logger.info(f"Removed {identifier} from network (total: {len(self._nodes)} nodes)")
-        return True
+        logger.info(f"Removed {identifier} from network (total: {len(self._nodes)} nodes, leave_hops: {hops})")
+        return True, hops
     
     def get_node(self, identifier: str) -> Optional[ChordNode]:
         """
@@ -155,7 +159,7 @@ class ChordNetwork:
             return None
         return random.choice(self._nodes)
     
-    def build_network(self, num_nodes: int, identifier_prefix: str = "node_") -> List[ChordNode]:
+    def build_network(self, num_nodes: int, identifier_prefix: str = "node_") -> Dict[str, Any]:
         """
         Build a network with the specified number of nodes.
         
@@ -166,18 +170,34 @@ class ChordNetwork:
             identifier_prefix: Prefix for node identifiers.
         
         Returns:
-            List of created nodes.
+            Dictionary with build statistics:
+                - nodes: List of created nodes
+                - total_join_hops: Total hops for all joins
+                - average_join_hops: Average hops per join
+                - join_hops_per_node: List of hops for each node join
         """
         logger.info(f"Building Chord network with {num_nodes} nodes")
         
         created_nodes = []
+        join_hops_list = []
+        
         for i in range(num_nodes):
             identifier = f"{identifier_prefix}{i}"
-            node = self.create_and_add_node(identifier)
+            node, hops = self.create_and_add_node(identifier)
             created_nodes.append(node)
+            join_hops_list.append(hops)
         
-        logger.info(f"Network built: {len(self._nodes)} nodes")
-        return created_nodes
+        total_hops = sum(join_hops_list)
+        avg_hops = total_hops / num_nodes if num_nodes > 0 else 0
+        
+        logger.info(f"Network built: {len(self._nodes)} nodes, total_join_hops: {total_hops}")
+        
+        return {
+            "nodes": created_nodes,
+            "total_join_hops": total_hops,
+            "average_join_hops": avg_hops,
+            "join_hops_per_node": join_hops_list,
+        }
     
     def stabilize_all(self, rounds: int = 1) -> None:
         """
@@ -326,6 +346,42 @@ class ChordNetwork:
             "average_hops": total_hops / len(keys) if keys else 0,
             "found_count": found_count,
             "not_found_count": len(keys) - found_count,
+        }
+    
+    def bulk_delete(
+        self,
+        keys: List[str],
+        from_node: ChordNode = None
+    ) -> Dict[str, Any]:
+        """
+        Delete multiple keys.
+        
+        Args:
+            keys: List of keys to delete.
+            from_node: Node to start from. If None, uses random node for each.
+        
+        Returns:
+            Dictionary with statistics:
+                - total_keys: Number of keys to delete
+                - total_hops: Total hops across all deletes
+                - average_hops: Average hops per delete
+                - success_count: Number of successful deletes
+        """
+        total_hops = 0
+        success_count = 0
+        
+        for key in keys:
+            node = from_node if from_node else random.choice(self._nodes)
+            success, hops = node.delete(key)
+            total_hops += hops
+            if success:
+                success_count += 1
+        
+        return {
+            "total_keys": len(keys),
+            "total_hops": total_hops,
+            "average_hops": total_hops / len(keys) if keys else 0,
+            "success_count": success_count,
         }
     
     def get_network_stats(self) -> Dict[str, Any]:
