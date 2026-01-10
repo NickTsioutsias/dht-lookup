@@ -37,4 +37,4 @@ data/*.xlsx
 data/*.ipynb
 data/*.md
 data/*.csv
-notes
+docs
