@@ -3,6 +3,12 @@ Abstract base class for DHT nodes.
 
 Defines the interface that all DHT implementations (Chord, Pastry) must follow.
 This ensures consistent behavior and enables fair comparison between protocols.
+
+Hop Counting Model:
+    All implementations count ALL network messages as hops, including:
+    - Routing hops (messages forwarded through intermediate nodes)
+    - Communication hops (direct messages to known nodes)
+    This provides a complete picture of network cost for fair comparison.
 """
 
 from abc import ABC, abstractmethod
@@ -71,7 +77,7 @@ class BaseNode(ABC):
                           If None, this node starts a new network.
         
         Returns:
-            Number of hops used during the join process.
+            Number of hops (network messages) used during the join process.
         """
         pass
     
@@ -83,7 +89,7 @@ class BaseNode(ABC):
         Transfers responsibility for keys to other nodes.
         
         Returns:
-            Number of hops used during the leave process.
+            Number of hops (network messages) used during the leave process.
         """
         pass
     
