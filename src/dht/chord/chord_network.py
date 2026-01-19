@@ -1,52 +1,40 @@
 """
 Chord network manager.
 
-Provides utilities for creating, managing, and testing Chord networks.
-Handles node creation, joining, and bulk operations for benchmarking.
+Provides Chord-specific network management functionality.
+Inherits shared functionality from BaseNetwork.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
 import random
 
-import config
-from src.common.hashing import hash_node
 from src.common.logger import get_logger
+from src.dht.base_network import BaseNetwork
 from src.dht.chord.node import ChordNode
 
 logger = get_logger(__name__)
 
 
-class ChordNetwork:
+class ChordNetwork(BaseNetwork):
     """
     Manager for a Chord DHT network.
     
-    Handles creation of nodes, network formation, and provides
-    utilities for testing and benchmarking.
+    Inherits from BaseNetwork:
+        - Node storage and access
+        - Bulk operations (bulk_insert, bulk_lookup, bulk_delete)
+        - Concurrent operations (concurrent_lookup, concurrent_insert)
+        - Network statistics
     
-    Attributes:
-        nodes: List of all nodes in the network.
-        node_count: Number of nodes in the network.
+    Implements:
+        - create_node() - Creates ChordNode instances
+        - add_node() - Chord-specific join protocol
+        - remove_node() - Chord-specific leave protocol
+        - build_network() - Build Chord network
     """
-    
-    def __init__(self):
-        """Initialize an empty Chord network."""
-        self._nodes: List[ChordNode] = []
-        self._nodes_by_id: Dict[int, ChordNode] = {}
-        self._nodes_by_identifier: Dict[str, ChordNode] = {}
-    
-    @property
-    def nodes(self) -> List[ChordNode]:
-        """List of all nodes in the network."""
-        return self._nodes.copy()
-    
-    @property
-    def node_count(self) -> int:
-        """Number of nodes in the network."""
-        return len(self._nodes)
     
     def create_node(self, identifier: str) -> ChordNode:
         """
-        Create a new node (but don't add it to the network yet).
+        Create a new Chord node (but don't add it to the network yet).
         
         Args:
             identifier: Human-readable name for the node.
@@ -60,18 +48,17 @@ class ChordNetwork:
         if identifier in self._nodes_by_identifier:
             raise ValueError(f"Node with identifier '{identifier}' already exists")
         
-        node = ChordNode(identifier)
-        return node
+        return ChordNode(identifier)
     
     def add_node(self, node: ChordNode) -> int:
         """
-        Add an existing node to the network.
+        Add an existing Chord node to the network.
         
         The node will join through an existing node if the network
         is not empty, otherwise it starts a new network.
         
         Args:
-            node: The node to add.
+            node: The ChordNode to add.
         
         Returns:
             Number of hops used during the join process.
@@ -91,28 +78,12 @@ class ChordNetwork:
         self._nodes_by_id[node.node_id] = node
         self._nodes_by_identifier[node.identifier] = node
         
-        logger.info(f"Added {node.identifier} to network (total: {len(self._nodes)} nodes, join_hops: {hops})")
+        logger.info(f"Added {node.identifier} to Chord network (total: {len(self._nodes)} nodes, join_hops: {hops})")
         return hops
-    
-    def create_and_add_node(self, identifier: str) -> Tuple[ChordNode, int]:
-        """
-        Create a new node and add it to the network.
-        
-        Convenience method combining create_node and add_node.
-        
-        Args:
-            identifier: Human-readable name for the node.
-        
-        Returns:
-            Tuple of (created_node, join_hops).
-        """
-        node = self.create_node(identifier)
-        hops = self.add_node(node)
-        return node, hops
     
     def remove_node(self, identifier: str) -> Tuple[bool, int]:
         """
-        Remove a node from the network.
+        Remove a node from the Chord network.
         
         The node will gracefully leave, transferring its keys.
         
@@ -133,35 +104,12 @@ class ChordNetwork:
         del self._nodes_by_id[node.node_id]
         del self._nodes_by_identifier[identifier]
         
-        logger.info(f"Removed {identifier} from network (total: {len(self._nodes)} nodes, leave_hops: {hops})")
+        logger.info(f"Removed {identifier} from Chord network (total: {len(self._nodes)} nodes, leave_hops: {hops})")
         return True, hops
-    
-    def get_node(self, identifier: str) -> Optional[ChordNode]:
-        """
-        Get a node by its identifier.
-        
-        Args:
-            identifier: The node's identifier.
-        
-        Returns:
-            The node if found, None otherwise.
-        """
-        return self._nodes_by_identifier.get(identifier)
-    
-    def get_random_node(self) -> Optional[ChordNode]:
-        """
-        Get a random node from the network.
-        
-        Returns:
-            A random node, or None if network is empty.
-        """
-        if not self._nodes:
-            return None
-        return random.choice(self._nodes)
     
     def build_network(self, num_nodes: int, identifier_prefix: str = "node_") -> Dict[str, Any]:
         """
-        Build a network with the specified number of nodes.
+        Build a Chord network with the specified number of nodes.
         
         Creates nodes with identifiers like "node_0", "node_1", etc.
         
@@ -183,14 +131,15 @@ class ChordNetwork:
         
         for i in range(num_nodes):
             identifier = f"{identifier_prefix}{i}"
-            node, hops = self.create_and_add_node(identifier)
+            node = self.create_node(identifier)
+            hops = self.add_node(node)
             created_nodes.append(node)
             join_hops_list.append(hops)
         
         total_hops = sum(join_hops_list)
         avg_hops = total_hops / num_nodes if num_nodes > 0 else 0
         
-        logger.info(f"Network built: {len(self._nodes)} nodes, total_join_hops: {total_hops}")
+        logger.info(f"Chord network built: {len(self._nodes)} nodes, total_join_hops: {total_hops}")
         
         return {
             "nodes": created_nodes,
@@ -198,6 +147,10 @@ class ChordNetwork:
             "average_join_hops": avg_hops,
             "join_hops_per_node": join_hops_list,
         }
+    
+    # =========================================================================
+    # Chord-specific Methods
+    # =========================================================================
     
     def stabilize_all(self, rounds: int = 1) -> None:
         """
@@ -212,198 +165,6 @@ class ChordNetwork:
             for node in self._nodes:
                 node.stabilize()
                 node.fix_fingers()
-    
-    def insert(self, key: str, value: Any, from_node: ChordNode = None) -> Tuple[bool, int]:
-        """
-        Insert a key-value pair into the network.
-        
-        Args:
-            key: The key to insert.
-            value: The value to store.
-            from_node: Node to start the insert from. If None, uses random node.
-        
-        Returns:
-            Tuple of (success, hop_count).
-        """
-        if not self._nodes:
-            logger.error("Cannot insert: network is empty")
-            return False, 0
-        
-        if from_node is None:
-            from_node = random.choice(self._nodes)
-        
-        return from_node.insert(key, value)
-    
-    def lookup(self, key: str, from_node: ChordNode = None) -> Tuple[Optional[Any], int]:
-        """
-        Look up a value by key.
-        
-        Args:
-            key: The key to look up.
-            from_node: Node to start the lookup from. If None, uses random node.
-        
-        Returns:
-            Tuple of (value or None, hop_count).
-        """
-        if not self._nodes:
-            logger.error("Cannot lookup: network is empty")
-            return None, 0
-        
-        if from_node is None:
-            from_node = random.choice(self._nodes)
-        
-        return from_node.lookup(key)
-    
-    def delete(self, key: str, from_node: ChordNode = None) -> Tuple[bool, int]:
-        """
-        Delete a key from the network.
-        
-        Args:
-            key: The key to delete.
-            from_node: Node to start from. If None, uses random node.
-        
-        Returns:
-            Tuple of (success, hop_count).
-        """
-        if not self._nodes:
-            logger.error("Cannot delete: network is empty")
-            return False, 0
-        
-        if from_node is None:
-            from_node = random.choice(self._nodes)
-        
-        return from_node.delete(key)
-    
-    def bulk_insert(
-        self,
-        items: List[Tuple[str, Any]],
-        from_node: ChordNode = None
-    ) -> Dict[str, Any]:
-        """
-        Insert multiple key-value pairs.
-        
-        Args:
-            items: List of (key, value) tuples to insert.
-            from_node: Node to start from. If None, uses random node for each.
-        
-        Returns:
-            Dictionary with statistics:
-                - total_items: Number of items inserted
-                - total_hops: Total hops across all inserts
-                - average_hops: Average hops per insert
-                - success_count: Number of successful inserts
-        """
-        total_hops = 0
-        success_count = 0
-        
-        for key, value in items:
-            node = from_node if from_node else random.choice(self._nodes)
-            success, hops = node.insert(key, value)
-            total_hops += hops
-            if success:
-                success_count += 1
-        
-        return {
-            "total_items": len(items),
-            "total_hops": total_hops,
-            "average_hops": total_hops / len(items) if items else 0,
-            "success_count": success_count,
-        }
-    
-    def bulk_lookup(
-        self,
-        keys: List[str],
-        from_node: ChordNode = None
-    ) -> Dict[str, Any]:
-        """
-        Look up multiple keys.
-        
-        Args:
-            keys: List of keys to look up.
-            from_node: Node to start from. If None, uses random node for each.
-        
-        Returns:
-            Dictionary with statistics:
-                - total_keys: Number of keys looked up
-                - total_hops: Total hops across all lookups
-                - average_hops: Average hops per lookup
-                - found_count: Number of keys found
-                - not_found_count: Number of keys not found
-        """
-        total_hops = 0
-        found_count = 0
-        
-        for key in keys:
-            node = from_node if from_node else random.choice(self._nodes)
-            value, hops = node.lookup(key)
-            total_hops += hops
-            if value is not None:
-                found_count += 1
-        
-        return {
-            "total_keys": len(keys),
-            "total_hops": total_hops,
-            "average_hops": total_hops / len(keys) if keys else 0,
-            "found_count": found_count,
-            "not_found_count": len(keys) - found_count,
-        }
-    
-    def bulk_delete(
-        self,
-        keys: List[str],
-        from_node: ChordNode = None
-    ) -> Dict[str, Any]:
-        """
-        Delete multiple keys.
-        
-        Args:
-            keys: List of keys to delete.
-            from_node: Node to start from. If None, uses random node for each.
-        
-        Returns:
-            Dictionary with statistics:
-                - total_keys: Number of keys to delete
-                - total_hops: Total hops across all deletes
-                - average_hops: Average hops per delete
-                - success_count: Number of successful deletes
-        """
-        total_hops = 0
-        success_count = 0
-        
-        for key in keys:
-            node = from_node if from_node else random.choice(self._nodes)
-            success, hops = node.delete(key)
-            total_hops += hops
-            if success:
-                success_count += 1
-        
-        return {
-            "total_keys": len(keys),
-            "total_hops": total_hops,
-            "average_hops": total_hops / len(keys) if keys else 0,
-            "success_count": success_count,
-        }
-    
-    def get_network_stats(self) -> Dict[str, Any]:
-        """
-        Get statistics about the network.
-        
-        Returns:
-            Dictionary with network statistics.
-        """
-        if not self._nodes:
-            return {"node_count": 0}
-        
-        total_keys = sum(node.get_local_key_count() for node in self._nodes)
-        keys_per_node = [node.get_local_key_count() for node in self._nodes]
-        
-        return {
-            "node_count": len(self._nodes),
-            "total_keys": total_keys,
-            "keys_per_node_min": min(keys_per_node),
-            "keys_per_node_max": max(keys_per_node),
-            "keys_per_node_avg": total_keys / len(self._nodes),
-        }
     
     def get_ring_order(self) -> List[ChordNode]:
         """
@@ -422,7 +183,7 @@ class ChordNetwork:
             String showing nodes in ring order with their successors.
         """
         if not self._nodes:
-            return "Empty network"
+            return "Empty Chord network"
         
         lines = ["Chord Ring Structure:"]
         for node in self.get_ring_order():
@@ -436,14 +197,19 @@ class ChordNetwork:
         
         return "\n".join(lines)
     
-    def clear(self) -> None:
-        """Remove all nodes and reset the network."""
-        for node in self._nodes:
-            node._is_active = False
-            node._data.clear()
+    def get_network_stats(self) -> Dict[str, Any]:
+        """
+        Get Chord-specific statistics about the network.
         
-        self._nodes.clear()
-        self._nodes_by_id.clear()
-        self._nodes_by_identifier.clear()
+        Returns:
+            Dictionary with network statistics.
+        """
+        # Get base stats
+        stats = super().get_network_stats()
         
-        logger.info("Network cleared")
+        if self._nodes:
+            # Add Chord-specific stats
+            finger_table_sizes = [node.get_routing_table_size() for node in self._nodes]
+            stats["finger_table_avg"] = sum(finger_table_sizes) / len(self._nodes)
+        
+        return stats

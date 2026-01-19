@@ -5,16 +5,14 @@ Implements the Chord DHT protocol with O(log N) routing.
 Based on the original Chord paper by Stoica et al.
 
 Hop Counting Model:
-    This implementation counts ALL network messages as hops, including:
-    - Routing hops (messages to find/locate nodes)
-    - Communication hops (direct messages to known nodes)
-    This provides a complete picture of network cost for comparison with other DHT protocols.
+    All network messages between different nodes are counted as hops,
+    including both routing hops and communication hops.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
 
 import config
-from src.common.hashing import hash_key, hash_node, in_range, distance
+from src.common.hashing import hash_key, hash_node, in_range
 from src.common.logger import get_logger
 from src.dht.base_node import BaseNode
 from src.dht.chord.finger_table import FingerTable
@@ -27,6 +25,14 @@ class ChordNode(BaseNode):
     A node in the Chord DHT network.
     
     Implements the Chord protocol with finger table routing for O(log N) lookups.
+    
+    Inherits from BaseNode:
+        - insert(), lookup(), delete(), update() - use find_successor() for routing
+    
+    Implements:
+        - find_successor() - Chord's finger table routing
+        - join() - Chord's join protocol
+        - leave() - Chord's leave protocol
     
     Attributes:
         identifier: Human-readable name for the node.
@@ -82,6 +88,28 @@ class ChordNode(BaseNode):
         """Whether this node is currently part of the network."""
         return self._is_active
     
+    # =========================================================================
+    # Core DHT Operations (Chord-specific implementations)
+    # =========================================================================
+    
+    def find_successor(self, key_id: int) -> Tuple["ChordNode", int]:
+        """
+        Find the node responsible for key_id using Chord's finger table routing.
+        
+        Args:
+            key_id: The hashed key ID to look up.
+        
+        Returns:
+            Tuple of (responsible_node, hop_count).
+        """
+        hops = 0
+        predecessor, pred_hops = self._find_predecessor_with_hops(key_id)
+        hops += pred_hops
+        
+        if predecessor.successor:
+            return predecessor.successor, hops
+        return predecessor, hops
+    
     def join(self, existing_node: Optional["ChordNode"] = None) -> int:
         """
         Join the Chord network.
@@ -124,6 +152,70 @@ class ChordNode(BaseNode):
         self._is_active = True
         logger.debug(f"{self.identifier} joined with successor={self.successor.identifier}, hops={total_hops}")
         return total_hops
+    
+    def leave(self) -> int:
+        """
+        Gracefully leave the Chord network.
+        
+        Transfers all keys to successor and updates predecessor/successor links.
+        Uses lazy approach: only notifies immediate neighbors, finger tables
+        are repaired lazily by other nodes during stabilization.
+        
+        Hop counting:
+            - 1 hop: notify successor (transfer keys + update predecessor pointer)
+            - 1 hop: notify predecessor (update successor pointer)
+            - Total: 2 hops for normal leave, 0 if only node in network
+        
+        Returns:
+            Number of hops (network messages) used during leave.
+        """
+        total_hops = 0
+        
+        if not self._is_active:
+            logger.warning(f"{self.identifier} is not active, cannot leave")
+            return 0
+        
+        logger.info(f"{self.identifier} leaving network")
+        
+        # Check if we are the only node
+        if self.successor == self and self._predecessor == self:
+            logger.info(f"{self.identifier} was the only node, network is now empty")
+            self._data.clear()
+            self._is_active = False
+            return 0
+        
+        # Step 1: Transfer keys and notify successor
+        # 1 hop: message to successor with keys and new predecessor info
+        if self.successor and self.successor != self:
+            for key, value in self._data.items():
+                self.successor.store_local(key, value)
+                logger.debug(f"Transferred key '{key}' to {self.successor.identifier}")
+            self.successor.predecessor = self._predecessor
+            total_hops += 1
+        
+        # Step 2: Notify predecessor of new successor
+        # 1 hop: message to predecessor with new successor info
+        if self._predecessor and self._predecessor != self:
+            self._predecessor.successor = self.successor
+            total_hops += 1
+        
+        # Finger tables of other nodes are NOT updated here (lazy approach)
+        # They will be repaired during stabilization or when lookups fail
+        
+        # Clear our state
+        self._data.clear()
+        self._is_active = False
+        logger.info(f"{self.identifier} has left the network (hops: {total_hops})")
+        
+        return total_hops
+    
+    def get_routing_table_size(self) -> int:
+        """Get the number of unique nodes in the finger table."""
+        return len(self._finger_table.get_all_unique_nodes())
+    
+    # =========================================================================
+    # Internal Helper Methods
+    # =========================================================================
     
     def _init_finger_table_single(self) -> None:
         """Initialize finger table when we are the only node."""
@@ -184,9 +276,6 @@ class ChordNode(BaseNode):
         """
         Update finger tables of other nodes that should point to us.
         
-        Called when joining the network. Finds nodes whose finger tables
-        should include this node and updates them.
-        
         Returns:
             Number of hops used during the update process.
         """
@@ -194,7 +283,6 @@ class ChordNode(BaseNode):
         
         for i in range(self._finger_table.size):
             # Find the node that might need to update finger i to point to us
-            # This is the predecessor of (self.node_id - 2^i)
             target = (self._node_id - (1 << i)) % config.HASH_SPACE_SIZE
             predecessor, hops = self._find_predecessor_with_hops(target)
             total_hops += hops
@@ -238,9 +326,6 @@ class ChordNode(BaseNode):
         """
         Take over keys from successor that now belong to us.
         
-        Called when joining. Keys in range (predecessor, self] should
-        be moved from successor to us.
-        
         Returns:
             Number of hops used (1 if keys migrated, 0 if no migration needed).
         """
@@ -269,80 +354,6 @@ class ChordNode(BaseNode):
             return 1
         
         return 0
-    
-    def leave(self) -> int:
-        """
-        Gracefully leave the Chord network.
-        
-        Transfers all keys to successor and updates predecessor/successor links.
-        Uses lazy approach: only notifies immediate neighbors, finger tables
-        are repaired lazily by other nodes during stabilization.
-        
-        Hop counting:
-            - 1 hop: notify successor (transfer keys + update predecessor pointer)
-            - 1 hop: notify predecessor (update successor pointer)
-            - Total: 2 hops for normal leave, 0 if only node in network
-        
-        Returns:
-            Number of hops (network messages) used during leave.
-        """
-        total_hops = 0
-        
-        if not self._is_active:
-            logger.warning(f"{self.identifier} is not active, cannot leave")
-            return 0
-        
-        logger.info(f"{self.identifier} leaving network")
-        
-        # Check if we are the only node
-        if self.successor == self and self._predecessor == self:
-            logger.info(f"{self.identifier} was the only node, network is now empty")
-            self._data.clear()
-            self._is_active = False
-            return 0
-        
-        # Step 1: Transfer keys and notify successor
-        # 1 hop: message to successor with keys and new predecessor info
-        if self.successor and self.successor != self:
-            for key, value in self._data.items():
-                self.successor.store_local(key, value)
-                logger.debug(f"Transferred key '{key}' to {self.successor.identifier}")
-            self.successor.predecessor = self._predecessor
-            total_hops += 1
-        
-        # Step 2: Notify predecessor of new successor
-        # 1 hop: message to predecessor with new successor info
-        if self._predecessor and self._predecessor != self:
-            self._predecessor.successor = self.successor
-            total_hops += 1
-        
-        # Finger tables of other nodes are NOT updated here (lazy approach)
-        # They will be repaired during stabilization or when lookups fail
-        
-        # Clear our state
-        self._data.clear()
-        self._is_active = False
-        logger.info(f"{self.identifier} has left the network (hops: {total_hops})")
-        
-        return total_hops
-    
-    def find_successor(self, key_id: int) -> Tuple["ChordNode", int]:
-        """
-        Find the node responsible for key_id.
-        
-        Args:
-            key_id: The hashed key ID to look up.
-        
-        Returns:
-            Tuple of (responsible_node, hop_count).
-        """
-        hops = 0
-        predecessor, pred_hops = self._find_predecessor_with_hops(key_id)
-        hops += pred_hops
-        
-        if predecessor.successor:
-            return predecessor.successor, hops
-        return predecessor, hops
     
     def _find_predecessor(self, key_id: int) -> "ChordNode":
         """
@@ -413,122 +424,15 @@ class ChordNode(BaseNode):
         result = self._finger_table.find_closest_preceding_node(key_id)
         return result if result else self
     
-    def insert(self, key: str, value: Any) -> Tuple[bool, int]:
-        """
-        Insert a key-value pair into the DHT.
-        
-        Hop counting:
-            - Routing hops to find responsible node
-            - 1 hop to send store request to responsible node
-        
-        Args:
-            key: The key to insert.
-            value: The value to store.
-        
-        Returns:
-            Tuple of (success, hop_count).
-        """
-        key_id = hash_key(key)
-        responsible_node, hops = self.find_successor(key_id)
-        
-        # 1 hop: message to responsible node to store the key
-        if responsible_node != self:
-            hops += 1
-        
-        responsible_node.store_local(key, value)
-        logger.debug(f"Inserted key '{key}' at {responsible_node.identifier} (hops: {hops})")
-        return True, hops
-    
-    def lookup(self, key: str) -> Tuple[Optional[Any], int]:
-        """
-        Look up a value by key.
-        
-        Hop counting:
-            - Routing hops to find responsible node
-            - 1 hop to send lookup request to responsible node
-        
-        Args:
-            key: The key to look up.
-        
-        Returns:
-            Tuple of (value or None, hop_count).
-        """
-        key_id = hash_key(key)
-        responsible_node, hops = self.find_successor(key_id)
-        
-        # 1 hop: message to responsible node to get the key
-        if responsible_node != self:
-            hops += 1
-        
-        value = responsible_node.get_local(key)
-        logger.debug(f"Lookup key '{key}' at {responsible_node.identifier} (hops: {hops})")
-        return value, hops
-    
-    def delete(self, key: str) -> Tuple[bool, int]:
-        """
-        Delete a key-value pair from the DHT.
-        
-        Hop counting:
-            - Routing hops to find responsible node
-            - 1 hop to send delete request to responsible node
-        
-        Args:
-            key: The key to delete.
-        
-        Returns:
-            Tuple of (success, hop_count).
-        """
-        key_id = hash_key(key)
-        responsible_node, hops = self.find_successor(key_id)
-        
-        # 1 hop: message to responsible node to delete the key
-        if responsible_node != self:
-            hops += 1
-        
-        success = responsible_node.delete_local(key)
-        logger.debug(f"Delete key '{key}' at {responsible_node.identifier}: {success} (hops: {hops})")
-        return success, hops
-    
-    def update(self, key: str, value: Any) -> Tuple[bool, int]:
-        """
-        Update the value for an existing key.
-        
-        Hop counting:
-            - Routing hops to find responsible node
-            - 1 hop to send update request to responsible node
-        
-        Args:
-            key: The key to update.
-            value: The new value.
-        
-        Returns:
-            Tuple of (success, hop_count).
-        """
-        key_id = hash_key(key)
-        responsible_node, hops = self.find_successor(key_id)
-        
-        # 1 hop: message to responsible node to update the key
-        if responsible_node != self:
-            hops += 1
-        
-        if responsible_node.get_local(key) is not None:
-            responsible_node.store_local(key, value)
-            logger.debug(f"Updated key '{key}' at {responsible_node.identifier} (hops: {hops})")
-            return True, hops
-        else:
-            logger.debug(f"Update failed - key '{key}' not found (hops: {hops})")
-            return False, hops
-    
-    def get_routing_table_size(self) -> int:
-        """Get the number of unique nodes in the finger table."""
-        return len(self._finger_table.get_all_unique_nodes())
+    # =========================================================================
+    # Stabilization Methods
+    # =========================================================================
     
     def stabilize(self) -> None:
         """
         Periodic stabilization to fix successor pointer.
         
         Called periodically to handle concurrent joins/leaves.
-        Checks if there's a node between us and our successor.
         """
         if not self._is_active or self.successor is None:
             return
@@ -567,8 +471,6 @@ class ChordNode(BaseNode):
         """
         Refresh a finger table entry.
         
-        Called periodically to keep finger table accurate.
-        
         Args:
             index: The finger to fix. If None, fixes a random finger.
         """
@@ -582,6 +484,10 @@ class ChordNode(BaseNode):
         finger_start = self._finger_table.get_start(index)
         node, _ = self.find_successor(finger_start)
         self._finger_table.set_node(index, node)
+    
+    # =========================================================================
+    # Debugging
+    # =========================================================================
     
     def get_info(self) -> Dict[str, Any]:
         """

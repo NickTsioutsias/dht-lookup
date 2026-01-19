@@ -69,9 +69,6 @@ PASTRY_BASE = 2 ** PASTRY_B
 # Total leaf set size is 2 * PASTRY_LEAF_SIZE
 PASTRY_LEAF_SIZE = 8
 
-# Neighborhood set size
-PASTRY_NEIGHBORHOOD_SIZE = 8
-
 # -----------------------------------------------------------------------------
 # Logging Configuration
 # -----------------------------------------------------------------------------
