@@ -14,8 +14,10 @@ Hop Counting Model:
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
+import config
 from src.common.hashing import hash_key
 from src.common.logger import get_logger
+from src.indexing.bplus_tree import BPlusTree
 
 logger = get_logger(__name__)
 
@@ -57,7 +59,7 @@ class BaseNode(ABC):
         """
         self._identifier = identifier
         self._node_id = node_id
-        self._data: Dict[str, Any] = {}
+        self._data = BPlusTree(order=config.BPLUS_TREE_ORDER)
     
     @property
     def identifier(self) -> str:
@@ -70,8 +72,8 @@ class BaseNode(ABC):
         return self._node_id
     
     @property
-    def data(self) -> Dict[str, Any]:
-        """Local data storage (key-value pairs this node is responsible for)."""
+    def data(self) -> BPlusTree:
+        """Local data storage (B+ tree indexed by key)."""
         return self._data
     
     # =========================================================================
@@ -300,7 +302,23 @@ class BaseNode(ABC):
             Number of key-value pairs in local storage.
         """
         return len(self._data)
-    
+
+    def range_query_local(self, start_key: str, end_key: str) -> List[Tuple[str, Any]]:
+        """
+        Perform a range query on local storage using the B+ tree.
+
+        Returns all key-value pairs where start_key <= key <= end_key,
+        leveraging the B+ tree's linked leaf structure for efficient scanning.
+
+        Args:
+            start_key: Lower bound of the range (inclusive).
+            end_key: Upper bound of the range (inclusive).
+
+        Returns:
+            List of (key, value) tuples in sorted order.
+        """
+        return self._data.range_query(start_key, end_key)
+
     # =========================================================================
     # Dunder Methods
     # =========================================================================

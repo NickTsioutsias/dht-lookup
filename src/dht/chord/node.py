@@ -112,43 +112,58 @@ class ChordNode(BaseNode):
     
     def join(self, existing_node: Optional["ChordNode"] = None) -> int:
         """
-        Join the Chord network.
-        
-        If existing_node is None, this node starts a new network.
-        Otherwise, it joins through the existing node.
-        
-        Hop counting includes:
-            - Routing hops for find_successor calls (finger table initialization)
-            - 1 hop to notify successor of new predecessor
-            - 1 hop to request/migrate keys from successor
-        
+        Join the Chord network using the practical Chord protocol (SIGCOMM 2001).
+
+        Uses the lazy/stabilization-based approach:
+        - Join only sets successor and predecessor pointers (O(log N) hops)
+        - Finger tables are populated lazily via fix_fingers()
+        - stabilize() maintains predecessor/successor correctness
+
         Args:
             existing_node: A node already in the network, or None to start new.
-        
+
         Returns:
             Total number of hops (network messages) used during join.
         """
         total_hops = 0
-        
+
         if existing_node is None:
             # Starting a new network - we are our own successor and predecessor
             logger.info(f"{self.identifier} starting new Chord network")
             self._predecessor = self
             self.successor = self
             self._init_finger_table_single()
-            # No hops needed for single node network
         else:
-            # Joining existing network
+            # Joining existing network (practical Chord protocol)
             logger.info(f"{self.identifier} joining network via {existing_node.identifier}")
-            hops = self._init_finger_table(existing_node)
+
+            # Step 1: Find our successor via routing (O(log N) hops)
+            successor, hops = existing_node.find_successor(self._node_id)
             total_hops += hops
-            
-            update_hops = self._update_others()
-            total_hops += update_hops
-            
+
+            # Step 2: Set our successor (finger[0])
+            self.successor = successor
+
+            # Step 3: Get predecessor from successor (1 hop)
+            self._predecessor = successor.predecessor
+            total_hops += 1
+
+            # Step 4: Notify successor that we are its new predecessor (1 hop)
+            successor.predecessor = self
+            total_hops += 1
+
+            # Step 5: Notify our predecessor to update its successor to us (1 hop)
+            if self._predecessor and self._predecessor != self and self._predecessor != successor:
+                self._predecessor.successor = self
+                total_hops += 1
+
+            # Step 6: Migrate keys from successor that now belong to us
             migrate_hops = self._migrate_keys_from_successor()
             total_hops += migrate_hops
-        
+
+            # Finger table is NOT initialized here — it is populated
+            # lazily by fix_fingers() during stabilization rounds.
+
         self._is_active = True
         logger.debug(f"{self.identifier} joined with successor={self.successor.identifier}, hops={total_hops}")
         return total_hops
@@ -221,106 +236,6 @@ class ChordNode(BaseNode):
         """Initialize finger table when we are the only node."""
         for i in range(self._finger_table.size):
             self._finger_table.set_node(i, self)
-    
-    def _init_finger_table(self, existing_node: "ChordNode") -> int:
-        """
-        Initialize finger table by querying the existing network.
-        
-        Args:
-            existing_node: A node to query for finger information.
-        
-        Returns:
-            Number of hops used during finger table initialization.
-        """
-        total_hops = 0
-        
-        # Find our successor
-        successor, hops = existing_node.find_successor(self._finger_table.get_start(0))
-        total_hops += hops
-        self._finger_table.set_node(0, successor)
-        
-        # Set predecessor from successor's predecessor
-        # 1 hop: message to successor asking for its predecessor
-        self._predecessor = successor.predecessor
-        total_hops += 1
-        
-        # Notify successor that we are its new predecessor
-        # 1 hop: message to successor
-        successor.predecessor = self
-        total_hops += 1
-        
-        # Initialize remaining fingers
-        for i in range(self._finger_table.size - 1):
-            finger_start = self._finger_table.get_start(i + 1)
-            current_finger = self._finger_table.get_node(i)
-            
-            # If the next finger start falls between us and current finger,
-            # we can reuse current finger (optimization)
-            if current_finger and in_range(
-                finger_start,
-                self._node_id,
-                current_finger.node_id,
-                inclusive_start=True,
-                inclusive_end=False
-            ):
-                self._finger_table.set_node(i + 1, current_finger)
-            else:
-                # Need to query the network
-                node, hops = existing_node.find_successor(finger_start)
-                total_hops += hops
-                self._finger_table.set_node(i + 1, node)
-        
-        return total_hops
-    
-    def _update_others(self) -> int:
-        """
-        Update finger tables of other nodes that should point to us.
-        
-        Returns:
-            Number of hops used during the update process.
-        """
-        total_hops = 0
-        
-        for i in range(self._finger_table.size):
-            # Find the node that might need to update finger i to point to us
-            target = (self._node_id - (1 << i)) % config.HASH_SPACE_SIZE
-            predecessor, hops = self._find_predecessor_with_hops(target)
-            total_hops += hops
-            
-            if predecessor and predecessor.node_id != self._node_id:
-                # 1 hop: message to predecessor to update its finger table
-                predecessor._update_finger_table(self, i)
-                total_hops += 1
-        
-        return total_hops
-    
-    def _update_finger_table(self, node: "ChordNode", i: int) -> None:
-        """
-        Update finger i to point to node if appropriate.
-        
-        Args:
-            node: The node that might be a better finger.
-            i: The finger index to potentially update.
-        """
-        current_finger = self._finger_table.get_node(i)
-        
-        if current_finger is None:
-            self._finger_table.set_node(i, node)
-            if self._predecessor and self._predecessor.node_id != node.node_id:
-                self._predecessor._update_finger_table(node, i)
-            return
-        
-        # Check if node falls in [self.node_id, current_finger.node_id)
-        if in_range(
-            node.node_id,
-            self._node_id,
-            current_finger.node_id,
-            inclusive_start=True,
-            inclusive_end=False
-        ):
-            self._finger_table.set_node(i, node)
-            if self._predecessor and self._predecessor.node_id != node.node_id:
-                self._predecessor._update_finger_table(node, i)
     
     def _migrate_keys_from_successor(self) -> int:
         """

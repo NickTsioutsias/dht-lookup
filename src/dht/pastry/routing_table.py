@@ -274,10 +274,10 @@ class RoutingTable:
         """
         self._owner_id = owner_id
         self._owner_hex = get_id_hex(owner_id)
-        
-        # Number of hex digits in the ID
-        self._num_rows = config.HASH_BIT_SIZE // config.PASTRY_B
-        
+
+        # Number of rows in routing table (practical limit, not full hash space)
+        self._num_rows = config.PASTRY_ROUTING_TABLE_ROWS
+
         # Base (number of possible values per digit)
         self._num_cols = config.PASTRY_BASE
         

@@ -136,9 +136,15 @@ class ChordNetwork(BaseNetwork):
             created_nodes.append(node)
             join_hops_list.append(hops)
         
+        # Stabilize network to populate finger tables (lazy Chord protocol).
+        # Finger tables are empty after join — stabilization fills them.
+        if num_nodes > 1:
+            self.stabilize_all(rounds=3)
+            logger.info("Chord network stabilized (finger tables populated)")
+
         total_hops = sum(join_hops_list)
         avg_hops = total_hops / num_nodes if num_nodes > 0 else 0
-        
+
         logger.info(f"Chord network built: {len(self._nodes)} nodes, total_join_hops: {total_hops}")
         
         return {
@@ -155,16 +161,20 @@ class ChordNetwork(BaseNetwork):
     def stabilize_all(self, rounds: int = 1) -> None:
         """
         Run stabilization on all nodes.
-        
-        Called to fix up the network after joins/leaves.
-        
+
+        Per the practical Chord protocol (SIGCOMM 2001), stabilize() fixes
+        successor/predecessor pointers and fix_fingers() populates the
+        finger table. Each round fixes ALL finger entries deterministically
+        (rather than one random finger) for fast convergence in simulation.
+
         Args:
             rounds: Number of stabilization rounds.
         """
         for _ in range(rounds):
             for node in self._nodes:
                 node.stabilize()
-                node.fix_fingers()
+                for i in range(node.finger_table.size):
+                    node.fix_fingers(i)
     
     def get_ring_order(self) -> List[ChordNode]:
         """

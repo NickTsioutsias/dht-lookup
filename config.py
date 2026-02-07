@@ -53,8 +53,10 @@ DEFAULT_NODE_COUNT = 16
 # Chord Configuration
 # -----------------------------------------------------------------------------
 
-# Finger table size (equals HASH_BIT_SIZE in standard Chord)
-CHORD_FINGER_TABLE_SIZE = HASH_BIT_SIZE
+# Finger table size
+# Theory: Need log2(N) fingers for N nodes. Using 20 supports up to 2^20 = 1M nodes.
+# This is practical for real networks while avoiding the overhead of 160 fingers.
+CHORD_FINGER_TABLE_SIZE = 20
 
 # -----------------------------------------------------------------------------
 # Pastry Configuration
@@ -65,9 +67,23 @@ CHORD_FINGER_TABLE_SIZE = HASH_BIT_SIZE
 PASTRY_B = 4
 PASTRY_BASE = 2 ** PASTRY_B
 
+# Number of rows in routing table
+# Theory: Need log_base(N) rows for N nodes. Using 5 rows supports up to 16^5 = 1M nodes.
+# This is practical for real networks while avoiding 40 empty rows.
+PASTRY_ROUTING_TABLE_ROWS = 5
+
 # Leaf set size (L/2 on each side)
 # Total leaf set size is 2 * PASTRY_LEAF_SIZE
 PASTRY_LEAF_SIZE = 8
+
+# -----------------------------------------------------------------------------
+# B+ Tree Local Indexing Configuration
+# -----------------------------------------------------------------------------
+
+# B+ tree order (max children per internal node).
+# Higher order = shallower tree but wider nodes.
+# order=32 means each node holds up to 31 keys per node.
+BPLUS_TREE_ORDER = 32
 
 # -----------------------------------------------------------------------------
 # Logging Configuration
