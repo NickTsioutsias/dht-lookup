@@ -153,7 +153,7 @@ class ChordNode(BaseNode):
             total_hops += 1
 
             # Step 5: Notify our predecessor to update its successor to us (1 hop)
-            if self._predecessor and self._predecessor != self and self._predecessor != successor:
+            if self._predecessor and self._predecessor != self:
                 self._predecessor.successor = self
                 total_hops += 1
 
