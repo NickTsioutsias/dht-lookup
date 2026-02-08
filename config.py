@@ -32,9 +32,6 @@ DATASET_PATH = os.path.join(DATA_DIR, DATASET_FILENAME)
 # Column to use as DHT key
 DATASET_KEY_COLUMN = "title"
 
-# Columns to include as value (None means all columns)
-DATASET_VALUE_COLUMNS = None
-
 # -----------------------------------------------------------------------------
 # DHT Common Configuration
 # -----------------------------------------------------------------------------
@@ -46,17 +43,14 @@ HASH_BIT_SIZE = 160
 # Hash space size (2^HASH_BIT_SIZE)
 HASH_SPACE_SIZE = 2 ** HASH_BIT_SIZE
 
-# Default number of nodes in the network
-DEFAULT_NODE_COUNT = 16
-
 # -----------------------------------------------------------------------------
 # Chord Configuration
 # -----------------------------------------------------------------------------
 
 # Finger table size
-# Theory: Need log2(N) fingers for N nodes. Using 20 supports up to 2^20 = 1M nodes.
-# This is practical for real networks while avoiding the overhead of 160 fingers.
-CHORD_FINGER_TABLE_SIZE = 20
+# Theory: finger i covers offset 2^i, so we need m entries (m = HASH_BIT_SIZE)
+# to span the full hash space and achieve O(log N) routing.
+CHORD_FINGER_TABLE_SIZE = HASH_BIT_SIZE
 
 # -----------------------------------------------------------------------------
 # Pastry Configuration

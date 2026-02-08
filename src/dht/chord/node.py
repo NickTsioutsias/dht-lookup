@@ -399,24 +399,4 @@ class ChordNode(BaseNode):
         finger_start = self._finger_table.get_start(index)
         node, _ = self.find_successor(finger_start)
         self._finger_table.set_node(index, node)
-    
-    # =========================================================================
-    # Debugging
-    # =========================================================================
-    
-    def get_info(self) -> Dict[str, Any]:
-        """
-        Get information about this node for debugging.
         
-        Returns:
-            Dictionary with node information.
-        """
-        return {
-            "identifier": self._identifier,
-            "node_id": self._node_id,
-            "is_active": self._is_active,
-            "predecessor": self._predecessor.identifier if self._predecessor else None,
-            "successor": self.successor.identifier if self.successor else None,
-            "local_keys": self.get_local_key_count(),
-            "finger_table_unique_nodes": self.get_routing_table_size(),
-        }

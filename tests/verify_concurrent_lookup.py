@@ -18,7 +18,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.common.data_loader import (
-    load_dataset,
     get_sample_movies,
     get_dataset_stats,
 )

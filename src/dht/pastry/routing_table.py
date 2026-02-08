@@ -50,11 +50,6 @@ def hex_digit_to_int(hex_char: str) -> int:
     return int(hex_char, 16)
 
 
-def int_to_hex_digit(value: int) -> str:
-    """Convert an integer (0-15) to hex character."""
-    return format(value, 'x')
-
-
 class LeafSet:
     """
     Leaf set for Pastry routing.
@@ -193,49 +188,6 @@ class LeafSet:
         
         return False
     
-    def get_closest_node(self, key_id: int) -> Optional["PastryNode"]:
-        """
-        Find the node in the leaf set closest to the given key.
-        
-        Args:
-            key_id: The key ID to find the closest node for.
-        
-        Returns:
-            The closest node, or None if leaf set is empty.
-        """
-        all_nodes = self.get_all_nodes()
-        if not all_nodes:
-            return None
-        
-        closest = None
-        min_distance = float('inf')
-        
-        for node in all_nodes:
-            dist = abs(node.node_id - key_id)
-            if dist < min_distance:
-                min_distance = dist
-                closest = node
-        
-        return closest
-    
-    def is_within_range(self, key_id: int) -> bool:
-        """
-        Check if a key falls within the range covered by the leaf set.
-        
-        Args:
-            key_id: The key ID to check.
-        
-        Returns:
-            True if the key is within leaf set range, False otherwise.
-        """
-        if not self._left and not self._right:
-            return True  # We're the only node
-        
-        min_id = self._left[-1].node_id if self._left else self._owner_id
-        max_id = self._right[-1].node_id if self._right else self._owner_id
-        
-        return min_id <= key_id <= max_id
-    
     def get_successor(self) -> Optional["PastryNode"]:
         """Get the immediate successor (first node in right set)."""
         return self._right[0] if self._right else None
@@ -322,18 +274,6 @@ class RoutingTable:
         if 0 <= row < self._num_rows and 0 <= col < self._num_cols:
             return self._table[row][col]
         return None
-    
-    def set(self, row: int, col: int, node: "PastryNode") -> None:
-        """
-        Set the node at the specified position.
-        
-        Args:
-            row: Row index (prefix length).
-            col: Column index (digit value).
-            node: The node to store.
-        """
-        if 0 <= row < self._num_rows and 0 <= col < self._num_cols:
-            self._table[row][col] = node
     
     def insert(self, node: "PastryNode") -> bool:
         """
@@ -452,12 +392,6 @@ class RoutingTable:
                     nodes.append(node)
         return nodes
     
-    def get_row(self, row: int) -> List[Optional["PastryNode"]]:
-        """Get all entries in a specific row."""
-        if 0 <= row < self._num_rows:
-            return self._table[row].copy()
-        return []
-    
     def get_filled_count(self) -> int:
         """Get the number of filled entries in the routing table."""
         count = 0
@@ -472,31 +406,3 @@ class RoutingTable:
         total = self._num_rows * self._num_cols
         return f"RoutingTable(filled={filled}/{total})"
     
-    def print_compact(self, max_rows: int = 5) -> str:
-        """
-        Get a compact string representation for debugging.
-        
-        Args:
-            max_rows: Maximum number of rows to display.
-        
-        Returns:
-            Compact string representation.
-        """
-        lines = [f"RoutingTable for {self._owner_hex[:8]}...:"]
-        
-        for row in range(min(max_rows, self._num_rows)):
-            row_entries = []
-            for col in range(self._num_cols):
-                node = self._table[row][col]
-                if node is not None:
-                    row_entries.append(f"{col:x}:{get_id_hex(node.node_id)[:4]}")
-            
-            if row_entries:
-                lines.append(f"  Row {row}: {', '.join(row_entries)}")
-            else:
-                lines.append(f"  Row {row}: (empty)")
-        
-        if self._num_rows > max_rows:
-            lines.append(f"  ... ({self._num_rows - max_rows} more rows)")
-        
-        return "\n".join(lines)

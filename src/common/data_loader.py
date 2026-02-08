@@ -134,56 +134,6 @@ def load_dataset(force_reload: bool = False) -> pd.DataFrame:
     _dataset_cache = df
     return df
 
-
-def get_all_titles() -> List[str]:
-    """
-    Get a list of all movie titles in the dataset.
-    
-    These are the keys we will use in the DHT.
-    
-    Returns:
-        List of movie title strings.
-    """
-    df = load_dataset()
-    return df[config.DATASET_KEY_COLUMN].tolist()
-
-
-def get_movie_by_title(title: str) -> Optional[MovieRecord]:
-    """
-    Get a movie record by its exact title.
-    
-    Args:
-        title: The exact movie title to search for.
-    
-    Returns:
-        MovieRecord if found, None otherwise.
-    """
-    df = load_dataset()
-    matches = df[df[config.DATASET_KEY_COLUMN] == title]
-    
-    if len(matches) == 0:
-        return None
-    
-    # Return the first match (there may be duplicates with same title)
-    return MovieRecord.from_series(matches.iloc[0])
-
-
-def get_movie_as_dict(title: str) -> Optional[Dict[str, Any]]:
-    """
-    Get a movie's data as a dictionary by its exact title.
-    
-    Args:
-        title: The exact movie title to search for.
-    
-    Returns:
-        Dictionary of movie data if found, None otherwise.
-    """
-    record = get_movie_by_title(title)
-    if record is None:
-        return None
-    return record.to_dict()
-
-
 def get_sample_movies(n: int, seed: Optional[int] = None) -> List[MovieRecord]:
     """
     Get a random sample of movies from the dataset.
@@ -209,24 +159,6 @@ def get_sample_movies(n: int, seed: Optional[int] = None) -> List[MovieRecord]:
     indices = random.sample(range(len(df)), n)
     
     return [MovieRecord.from_series(df.iloc[i]) for i in indices]
-
-
-def get_sample_titles(n: int, seed: Optional[int] = None) -> List[str]:
-    """
-    Get a random sample of movie titles from the dataset.
-    
-    Useful for testing lookups with a subset of keys.
-    
-    Args:
-        n: Number of titles to sample.
-        seed: Random seed for reproducibility. If None, results vary.
-    
-    Returns:
-        List of movie title strings.
-    """
-    samples = get_sample_movies(n, seed)
-    return [movie.title for movie in samples]
-
 
 def get_dataset_stats() -> Dict[str, Any]:
     """

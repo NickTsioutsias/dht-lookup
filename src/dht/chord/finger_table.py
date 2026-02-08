@@ -100,23 +100,6 @@ class FingerTable:
             raise IndexError(f"Finger index {index} out of range [0, {self._size})")
         return self._entries[index].start
     
-    def get_node(self, index: int) -> Optional["ChordNode"]:
-        """
-        Get the node stored at finger entry at given index.
-        
-        Args:
-            index: Finger table index (0 to size-1).
-        
-        Returns:
-            The node at this finger entry, or None if not set.
-        
-        Raises:
-            IndexError: If index is out of range.
-        """
-        if index < 0 or index >= self._size:
-            raise IndexError(f"Finger index {index} out of range [0, {self._size})")
-        return self._entries[index].node
-    
     def set_node(self, index: int, node: "ChordNode") -> None:
         """
         Set the node for finger entry at given index.
@@ -230,23 +213,3 @@ class FingerTable:
             lines.append(f"  [{i:3}] start={entry.start} {node_str}")
         return "\n".join(lines)
     
-    def print_compact(self, max_entries: int = 10) -> str:
-        """
-        Get a compact representation showing only first few entries.
-        
-        Useful for debugging without printing all 160 entries.
-        
-        Args:
-            max_entries: Maximum number of entries to show.
-        
-        Returns:
-            Compact string representation.
-        """
-        lines = [f"FingerTable for node {self._node_id} (showing first {max_entries}):"]
-        for i in range(min(max_entries, self._size)):
-            entry = self._entries[i]
-            node_str = f"-> {entry.node.identifier}" if entry.node else "-> None"
-            lines.append(f"  [{i}] start={entry.start} {node_str}")
-        if self._size > max_entries:
-            lines.append(f"  ... ({self._size - max_entries} more entries)")
-        return "\n".join(lines)

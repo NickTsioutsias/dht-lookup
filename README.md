@@ -19,89 +19,34 @@ Uses the [Movies Metadata Dataset](https://www.kaggle.com/datasets/mustafasayed1
 ### Prerequisites
 
 - Python 3.10+
-- pandas
+- pandas, matplotlib
 
-### Installation
+
+### One-Click Run (Demo + Benchmark + Plots)
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd dht-lookup
+# Full pipeline (demo, full benchmark, generate plots)
+python run_all.py
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Quick pipeline (demo, quick benchmark, generate plots)
+python run_all.py --quick
 ```
 
-### Running the Demo
+### Running Steps Individually
 
 ```bash
+# 1. Demo: shows all DHT operations with a small sample of movies
 python main.py
+
+# 2. Benchmark: experimental evaluation across multiple network sizes
+python -m evaluation.benchmark          # Full (network sizes: 8-128)
+python -m evaluation.benchmark --quick  # Quick (network sizes: 8-32)
+
+# 3. Visualization: generate comparison plots from benchmark results
+python -m evaluation.visualize
 ```
 
-This demonstrates all DHT operations with a small sample of movies.
-
-### Running Benchmarks
-
-```bash
-# Quick benchmark (smaller parameters, ~3 seconds)
-python -m evaluation.benchmark --quick
-
-# Full benchmark (larger parameters, ~minutes)
-python -m evaluation.benchmark
-```
-
-Results are saved to `results/benchmark_results.csv`.
-
-## Project Structure
-
-```
-dht-lookup/
-├── main.py                     # Demo entry point
-├── config.py                   # Configuration parameters
-├── requirements.txt            # Python dependencies
-│
-├── src/                        # Source code
-│   ├── common/                 # Shared utilities
-│   │   ├── hashing.py          # SHA-1 consistent hashing
-│   │   ├── data_loader.py      # Movies dataset loading
-│   │   └── logger.py           # Logging configuration
-│   │
-│   └── dht/                    # DHT implementations
-│       ├── base_node.py        # Abstract base class for nodes
-│       ├── base_network.py     # Abstract base class for networks
-│       │
-│       ├── chord/              # Chord protocol
-│       │   ├── node.py         # ChordNode implementation
-│       │   ├── chord_network.py # ChordNetwork manager
-│       │   └── finger_table.py # Finger table data structure
-│       │
-│       └── pastry/             # Pastry protocol
-│           ├── node.py         # PastryNode implementation
-│           ├── pastry_network.py # PastryNetwork manager
-│           └── routing_table.py # Routing table and leaf set
-│
-├── evaluation/                 # Benchmarking system
-│   ├── benchmark.py            # Experimental evaluation
-│   ├── visualize.py            # Plot generation
-│   └── metrics.py              # Metrics collection
-│
-├── data/                       # Dataset
-│   └── data_movies_clean.csv   # Movies dataset (~946K records)
-│
-├── results/                    # Benchmark outputs
-│   └── benchmark_results.csv   # Generated results
-│
-├── tests/                      # Test suite
-│   ├── test_refactoring.py     # Comprehensive tests
-│   └── verify_concurrent_lookup.py # Concurrent lookup verification
-│
-└── docs/                       # Documentation
-    └── implementation_notes.md # Technical notes
-```
+Results are saved to `results/benchmark_results.csv`. Plots are saved to `results/`.
 
 ## Architecture
 
@@ -166,7 +111,7 @@ Chord organizes nodes in a logical ring of size 2^m. Each node maintains a finge
 ### Configuration
 
 ```python
-CHORD_FINGER_TABLE_SIZE = 20  # Supports up to 2^20 = 1M nodes
+CHORD_FINGER_TABLE_SIZE = HASH_BIT_SIZE  # m=160 entries for full O(log N) routing
 ```
 
 ### Hop Counting
@@ -250,88 +195,18 @@ operation, protocol, network_size, count, total_hops, min_hops, max_hops, mean_h
 
 ## Sample Results
 
-From quick benchmark (8, 16, 32 nodes):
+From full benchmark (8 to 128 nodes), mean hops per operation:
 
-| Operation | Chord (mean) | Pastry (mean) | Winner |
-|-----------|-------------|---------------|--------|
-| Build (per node) | 91-339 | 5-12 | Pastry |
-| Insert | 4.5-15.3 | 1.8-2.8 | Pastry |
-| Lookup | 4.4-17.0 | 1.7-2.7 | Pastry |
-| Update | 4.3-17.1 | 1.8-2.9 | Pastry |
-| Delete | 4.4-17.5 | 1.7-2.8 | Pastry |
-| Node Join | 226-718 | 12-15 | Pastry |
-| Node Leave | 2 | 9-13 | Chord |
+| Operation | Chord (8→128 nodes) | Pastry (8→128 nodes) | Notes |
+|-----------|---------------------|----------------------|-------|
+| Insert | 2.4 → 4.4 | 1.8 → 7.1 | Chord wins at large N |
+| Lookup | 2.4 → 4.4 | 1.8 → 6.8 | Chord wins at large N |
+| Update | 2.4 → 4.4 | 1.7 → 7.1 | Chord wins at large N |
+| Delete | 2.4 → 4.4 | 1.8 → 7.2 | Chord wins at large N |
+| Node Join | 6.6 → 7.1 | 13.7 → 17.8 | Chord always cheaper |
+| Node Leave | 2.0 → 2.0 | 9.9 → 15.5 | Chord O(1) vs Pastry O(L) |
 
-**Note**: Chord's higher hop counts in small networks are expected behavior. See [docs/implementation_notes.md](docs/implementation_notes.md) for detailed explanation.
-
-## API Usage
-
-### Basic Example
-
-```python
-from src.dht.chord.chord_network import ChordNetwork
-from src.dht.pastry.pastry_network import PastryNetwork
-
-# Create Chord network
-chord = ChordNetwork()
-chord.build_network(16)  # 16 nodes
-
-# Insert data
-success, hops = chord.insert("The Matrix", {"year": 1999, "rating": 8.7})
-
-# Lookup
-value, hops = chord.lookup("The Matrix")
-
-# Update
-success, hops = chord.update("The Matrix", {"year": 1999, "rating": 9.0})
-
-# Delete
-success, hops = chord.delete("The Matrix")
-
-# Add node dynamically
-new_node = chord.create_node("new_node")
-join_hops = chord.add_node(new_node)
-
-# Remove node
-success, leave_hops = chord.remove_node("node_5")
-
-# Cleanup
-chord.clear()
-```
-
-### Concurrent Operations
-
-```python
-# Concurrent lookup of K movies
-titles = ["Movie1", "Movie2", "Movie3", "Movie4", "Movie5"]
-results = chord.concurrent_lookup(titles, max_workers=5)
-
-print(f"Found: {results['found_count']}/{results['total_keys']}")
-print(f"Average hops: {results['average_hops']:.2f}")
-
-# Access individual results
-for title, (value, hops) in results['results'].items():
-    if value:
-        print(f"{title}: popularity={value['popularity']}, hops={hops}")
-```
-
-### Loading Movie Data
-
-```python
-from src.common.data_loader import get_sample_movies, get_movie_by_title
-
-# Get random sample
-movies = get_sample_movies(100, seed=42)
-
-# Insert into network
-for movie in movies:
-    chord.insert(movie.title, movie.to_dict())
-
-# Get specific movie
-movie = get_movie_by_title("The Matrix")
-if movie:
-    print(f"Budget: ${movie.budget:,}")
-```
+Both protocols exhibit O(log N) scaling for CRUD operations. Chord uses a 160-entry finger table for precise routing; Pastry benefits from its leaf set at small network sizes but grows faster at larger sizes due to routing table sparsity. Chord has significantly cheaper join/leave due to its lazy stabilization approach.
 
 ## Testing
 
@@ -352,7 +227,7 @@ All configurable parameters are in `config.py`:
 HASH_BIT_SIZE = 160              # SHA-1 produces 160 bits
 
 # Chord
-CHORD_FINGER_TABLE_SIZE = 20     # Finger table entries
+CHORD_FINGER_TABLE_SIZE = HASH_BIT_SIZE  # m=160 for full ring coverage
 
 # Pastry
 PASTRY_B = 4                     # Bits per digit (base 16)
@@ -366,10 +241,9 @@ DATASET_KEY_COLUMN = "title"
 
 ## Known Limitations
 
-1. **In-memory simulation**: No actual network sockets; uses method calls
-2. **No failure handling**: Assumes nodes don't fail unexpectedly
+1. **In-memory simulation**: No actual network sockets; uses method calls between objects
+2. **No failure handling**: Assumes nodes don't fail unexpectedly (graceful leave only)
 3. **No persistence**: Data is lost when network is cleared
-4. **Chord in small networks**: Performance degrades due to sparse finger tables (see docs/implementation_notes.md)
 
 ## References
 

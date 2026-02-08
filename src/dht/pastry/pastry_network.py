@@ -152,28 +152,6 @@ class PastryNetwork(BaseNetwork):
     # Pastry-specific Methods
     # =========================================================================
     
-    def print_network(self) -> str:
-        """
-        Get a string representation of the network structure.
-        
-        Returns:
-            String showing nodes in ID order with their neighbors.
-        """
-        if not self._nodes:
-            return "Empty Pastry network"
-        
-        lines = ["Pastry Network Structure:"]
-        for node in self.get_id_order():
-            successor_id = node.successor.identifier if node.successor else "None"
-            predecessor_id = node.predecessor.identifier if node.predecessor else "None"
-            lines.append(
-                f"  {node.identifier} (hex={node.node_hex[:8]}...) "
-                f"-> succ: {successor_id}, pred: {predecessor_id}, "
-                f"keys: {node.get_local_key_count()}"
-            )
-        
-        return "\n".join(lines)
-    
     def get_network_stats(self) -> Dict[str, Any]:
         """
         Get Pastry-specific statistics about the network.

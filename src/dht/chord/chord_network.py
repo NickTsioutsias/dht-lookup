@@ -176,37 +176,6 @@ class ChordNetwork(BaseNetwork):
                 for i in range(node.finger_table.size):
                     node.fix_fingers(i)
     
-    def get_ring_order(self) -> List[ChordNode]:
-        """
-        Get nodes sorted by their position on the ring.
-        
-        Returns:
-            List of nodes sorted by node_id.
-        """
-        return sorted(self._nodes, key=lambda n: n.node_id)
-    
-    def print_ring(self) -> str:
-        """
-        Get a string representation of the ring structure.
-        
-        Returns:
-            String showing nodes in ring order with their successors.
-        """
-        if not self._nodes:
-            return "Empty Chord network"
-        
-        lines = ["Chord Ring Structure:"]
-        for node in self.get_ring_order():
-            successor_id = node.successor.identifier if node.successor else "None"
-            predecessor_id = node.predecessor.identifier if node.predecessor else "None"
-            lines.append(
-                f"  {node.identifier} (id={node.node_id}) "
-                f"-> succ: {successor_id}, pred: {predecessor_id}, "
-                f"keys: {node.get_local_key_count()}"
-            )
-        
-        return "\n".join(lines)
-    
     def get_network_stats(self) -> Dict[str, Any]:
         """
         Get Chord-specific statistics about the network.

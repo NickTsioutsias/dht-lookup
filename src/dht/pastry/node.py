@@ -462,25 +462,3 @@ class PastryNode(BaseNode):
         # Count as 1 hop if any keys were migrated (batch transfer)
         return 1 if keys_migrated else 0
     
-    # =========================================================================
-    # Debugging
-    # =========================================================================
-    
-    def get_info(self) -> Dict[str, Any]:
-        """
-        Get information about this node for debugging.
-        
-        Returns:
-            Dictionary with node information.
-        """
-        return {
-            "identifier": self._identifier,
-            "node_id": self._node_id,
-            "node_hex": self._node_hex[:16] + "...",
-            "is_active": self._is_active,
-            "predecessor": self.predecessor.identifier if self.predecessor else None,
-            "successor": self.successor.identifier if self.successor else None,
-            "local_keys": self.get_local_key_count(),
-            "routing_table_entries": self._routing_table.get_filled_count(),
-            "leaf_set_size": len(self._leaf_set.get_all_nodes()),
-        }
